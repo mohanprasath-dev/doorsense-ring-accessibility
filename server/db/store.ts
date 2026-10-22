@@ -120,6 +120,11 @@ export class EventStore {
 		this.db.prepare('DELETE FROM interpreted_events WHERE occurred_at < ?').run(cutoff);
 	}
 
+	public clearAll(): void {
+		this.db.prepare('DELETE FROM normalized_events').run();
+		this.db.prepare('DELETE FROM interpreted_events').run();
+	}
+
 	public close(): void {
 		this.db.close();
 	}

@@ -1,5 +1,8 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
+import fastifyStatic from '@fastify/static';
+import path from 'node:path';
+import fs from 'node:fs';
 import dotenv from 'dotenv';
 import { RingAdapter } from './ring/adapter.js';
 import { EventClassifier } from './classifier/classifier.js';
@@ -28,6 +31,29 @@ export function createServer() {
 	app.register(cors, {
 		origin: true,
 	});
+
+	// Serve static production frontend when dist/client exists
+	const distPath = path.resolve(process.cwd(), 'dist/client');
+	if (fs.existsSync(distPath)) {
+		app.register(fastifyStatic, {
+			root: distPath,
+			prefix: '/',
+			index: 'index.html',
+		});
+
+		app.get('/', async (_req, reply) => {
+			return reply.sendFile('index.html');
+		});
+
+		// SPA fallback
+		app.setNotFoundHandler((req, reply) => {
+			if (req.url.startsWith('/api')) {
+				reply.code(404).send({ error: 'Endpoint not found' });
+			} else {
+				reply.sendFile('index.html');
+			}
+		});
+	}
 
 	const ringAdapter = new RingAdapter({
 		apiBaseUrl: process.env.RING_API_BASE_URL,
@@ -71,7 +97,52 @@ export function createServer() {
 		return { events };
 	});
 
-	// 3. Server-Sent Events (SSE) live stream
+	// 3. Clear event history
+	app.delete('/api/events', async () => {
+		store.clearAll();
+		deduplicator.clear();
+		return { status: 'cleared', message: 'All event logs wiped from local database.' };
+	});
+
+	// 4. Connected Ring Devices Telemetry
+	app.get('/api/devices', async () => {
+		return {
+			devices: [
+				{
+					id: 'ring-device-01',
+					name: 'Front Doorbell Pro',
+					kind: 'doorbell',
+					battery: 94,
+					wifiSignal: 'Excellent (-54 dBm)',
+					status: 'online',
+					firmware: 'v3.2.14-prod',
+					lastHealthCheck: new Date().toISOString(),
+				},
+				{
+					id: 'ring-device-02',
+					name: 'Driveway Floodlight Cam',
+					kind: 'camera',
+					battery: 100, // Hardwired
+					wifiSignal: 'Good (-62 dBm)',
+					status: 'online',
+					firmware: 'v2.8.9-prod',
+					lastHealthCheck: new Date().toISOString(),
+				},
+				{
+					id: 'ring-device-03',
+					name: 'Side Yard Stick Up Cam',
+					kind: 'camera',
+					battery: 81,
+					wifiSignal: 'Fair (-68 dBm)',
+					status: 'online',
+					firmware: 'v2.8.9-prod',
+					lastHealthCheck: new Date().toISOString(),
+				},
+			],
+		};
+	});
+
+	// 5. Server-Sent Events (SSE) live stream
 	app.get('/api/events/stream', async (req, reply) => {
 		reply.raw.setHeader('Content-Type', 'text/event-stream');
 		reply.raw.setHeader('Cache-Control', 'no-cache');
@@ -92,7 +163,7 @@ export function createServer() {
 		reply.raw.write(': connected to doorsense stream\n\n');
 	});
 
-	// 4. Ingest real Ring webhook events
+	// 6. Ingest real Ring webhook events
 	app.post('/api/ring/webhook', async (req, reply) => {
 		const rawPayload = req.body;
 		const normalized = ringAdapter.normalize(rawPayload);
@@ -109,7 +180,7 @@ export function createServer() {
 		});
 	});
 
-	// 5. Simulator trigger endpoint
+	// 7. Simulator trigger endpoint
 	app.post('/api/ring/simulate', async (req, reply) => {
 		const body = req.body as { scenario?: string; customPayload?: unknown; count?: number };
 		const scenario = body.scenario || 'delivery';
@@ -171,7 +242,7 @@ export function createServer() {
 		});
 	});
 
-	// 6. Degraded mode toggle
+	// 8. Degraded mode toggle
 	app.post('/api/ring/degraded', async (req) => {
 		const body = req.body as { degraded?: boolean };
 		const isDegraded = Boolean(body.degraded);

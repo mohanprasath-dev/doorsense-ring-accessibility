@@ -18,6 +18,17 @@ describe('Fastify Server - End-to-End API Integration', () => {
 		await server.app.close();
 	});
 
+	it('GET / serves the production client index.html', async () => {
+		const res = await server.app.inject({
+			method: 'GET',
+			url: '/',
+		});
+
+		expect(res.statusCode).toBe(200);
+		expect(res.headers['content-type']).toContain('text/html');
+		expect(res.payload).toContain('DoorSense');
+	});
+
 	it('GET /api/health returns healthy status', async () => {
 		const res = await server.app.inject({
 			method: 'GET',
@@ -69,15 +80,33 @@ describe('Fastify Server - End-to-End API Integration', () => {
 		expect(json.events.length).toBeGreaterThan(0);
 	});
 
-	it('POST /api/ring/degraded safely toggles degraded mode', async () => {
+	it('GET /api/devices returns connected Ring devices telemetry', async () => {
 		const res = await server.app.inject({
-			method: 'POST',
-			url: '/api/ring/degraded',
-			payload: { degraded: true },
+			method: 'GET',
+			url: '/api/devices',
 		});
 
 		expect(res.statusCode).toBe(200);
 		const json = res.json();
-		expect(json.status).toBe('degraded');
+		expect(Array.isArray(json.devices)).toBe(true);
+		expect(json.devices.length).toBeGreaterThanOrEqual(1);
+		expect(json.devices[0].name).toContain('Doorbell');
+	});
+
+	it('DELETE /api/events clears event history', async () => {
+		const res = await server.app.inject({
+			method: 'DELETE',
+			url: '/api/events',
+		});
+
+		expect(res.statusCode).toBe(200);
+		const json = res.json();
+		expect(json.status).toBe('cleared');
+
+		const getRes = await server.app.inject({
+			method: 'GET',
+			url: '/api/events',
+		});
+		expect(getRes.json().events.length).toBe(0);
 	});
 });
